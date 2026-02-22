@@ -7,17 +7,20 @@ import (
 
 	"github.com/seanchuatech/go-webhook-dispatcher/internal/dispatcher"
 	"github.com/seanchuatech/go-webhook-dispatcher/internal/domain"
+	"github.com/seanchuatech/go-webhook-dispatcher/internal/repository"
 )
 
 // IngestHandler handles receiving incoming events
 type IngestHandler struct {
 	dispatcher *dispatcher.Dispatcher
+	repo       *repository.EventRepository
 }
 
 // NewIngestHandler creates a new handler
-func NewIngestHandler(d *dispatcher.Dispatcher) *IngestHandler {
+func NewIngestHandler(d *dispatcher.Dispatcher, repo *repository.EventRepository) *IngestHandler {
 	return &IngestHandler{
 		dispatcher: d,
+		repo:       repo,
 	}
 }
 
@@ -45,15 +48,29 @@ func (h *IngestHandler) HandleIngest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if event.Type == "" {
+		http.Error(w, `{"error": "type is required"}`, http.StatusBadRequest)
+		return
+	}
+
 	// Log receipt of the event
 	slog.Info("received event", "event_id", event.ID, "destination", event.DestinationURL)
+
+	// Insert the event as PENDING before queuing it
+	if h.repo != nil {
+		if err := h.repo.InsertEvent(r.Context(), event, "PENDING"); err != nil {
+			slog.Error("failed to insert event into database", "error", err, "event_id", event.ID)
+			http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+			return
+		}
+	}
 
 	// 2. Dispatch the event (Synchronous for Phase 2)
 	// We pass the request context so if the client disconnects, we can cancel the dispatch
 	err := h.dispatcher.Dispatch(r.Context(), event)
 	if err != nil {
-		slog.Error("failed to dispatch event", "event_id", event.ID, "error", err)
-		http.Error(w, "Failed to dispatch event", http.StatusInternalServerError)
+		slog.Error("dispatcher queue full", "error", err)
+		http.Error(w, `{"error": "server is overloaded, please try again later"}`, http.StatusServiceUnavailable)
 		return
 	}
 

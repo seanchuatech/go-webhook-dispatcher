@@ -10,22 +10,25 @@ import (
 	"time"
 
 	"github.com/seanchuatech/go-webhook-dispatcher/internal/domain"
+	"github.com/seanchuatech/go-webhook-dispatcher/internal/repository"
 )
 
 // Dispatcher handles sending events to their destination.
 type Dispatcher struct {
 	client      *http.Client
 	eventStream chan domain.Event
+	repo        *repository.EventRepository
 }
 
 // New creates a new Dispatcher with sensible HTTP client timeouts and starts the worker pool.
-func New(workerCount int, maxQueueSize int) *Dispatcher {
+func New(workerCount int, maxQueueSize int, repo *repository.EventRepository) *Dispatcher {
 	d := &Dispatcher{
 		client: &http.Client{
 			// Best Practice: Never use the default HTTP client in production as it has no timeout.
 			Timeout: 10 * time.Second,
 		},
 		eventStream: make(chan domain.Event, maxQueueSize),
+		repo:        repo,
 	}
 
 	// Phase 3: Start the worker pool
@@ -52,6 +55,11 @@ func (d *Dispatcher) worker(id int) {
 
 			if err == nil {
 				slog.Info("worker successfully dispatched event", "worker_id", id, "event_id", event.ID, "attempt", attempt)
+
+				// Update status in DB
+				if d.repo != nil {
+					_ = d.repo.UpdateEventStatus(context.Background(), event.ID, "DELIVERED")
+				}
 				break // Success! Exit the retry loop
 			}
 
@@ -59,7 +67,10 @@ func (d *Dispatcher) worker(id int) {
 
 			if attempt == maxRetries {
 				slog.Error("max retries reached, event failed permanently", "worker_id", id, "event_id", event.ID)
-				// Phase 5 will introduce Dead Letter Queue here
+				// Phase 5: Dead Letter Queue logging
+				if d.repo != nil {
+					_ = d.repo.UpdateEventStatus(context.Background(), event.ID, "FAILED")
+				}
 				break
 			}
 

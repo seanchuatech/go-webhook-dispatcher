@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/seanchuatech/go-webhook-dispatcher/internal/repository"
 	"github.com/seanchuatech/go-webhook-dispatcher/internal/server"
 )
 
@@ -25,12 +26,24 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
+
+	dbUrl := os.Getenv("DATABASE_URL")
+	if dbUrl == "" {
+		dbUrl = "postgres://dispatcher:secretpassword@localhost:5432/webhook_db?sslmode=disable"
+	}
+
+	// 2. Initialize the Database Repository
+	repo, err := repository.NewEventRepository(dbUrl)
+	if err != nil {
+		slog.Error("failed to connect to database. Starting without persistence", "error", err)
+		repo = nil // We can run the app without a DB if we want, gracefully degrading
+	}
+
+	// 3. Initialize the server
 	addr := ":" + port
+	srv := server.New(addr, repo)
 
-	srv := server.New(addr)
-
-	// Phase 1: Build basic HTTP server
-	// Run server in a goroutine so it doesn't block
+	// 4. Start the server in a goroutine so it doesn't block
 	go func() {
 		slog.Info("starting server", "addr", addr)
 		if err := srv.Start(); err != nil {
@@ -39,19 +52,23 @@ func main() {
 		}
 	}()
 
-	// Wait for the interrupt signal
+	// Block until a signal is received (managed by signal.NotifyContext)
 	<-ctx.Done()
 
 	// Restore default behavior on the interrupt signal and notify user of shutdown
 	stop()
 	slog.Info("shutting down gracefully, press Ctrl+C again to force")
 
-	// Context with timeout to give active connections time to finish
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// 6. Provide a timeout context for the shutdown
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	if err := srv.Stop(shutdownCtx); err != nil {
 		slog.Error("server forced to shutdown", "error", err)
+	}
+
+	if repo != nil {
+		_ = repo.Close()
 	}
 
 	slog.Info("server exited")

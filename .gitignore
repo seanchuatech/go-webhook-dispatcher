@@ -32,3 +32,11 @@ vendor/
 .DS_Store
 .idea/
 .vscode/
+
+# Environment Variables
+.env
+.env.*
+!.env.example
+
+# Custom Application Binaries
+webhook-dispatcher
