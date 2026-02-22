@@ -5,6 +5,9 @@ import (
 	"errors"
 	"net/http"
 	"time"
+
+	"github.com/seanchuatech/go-webhook-dispatcher/internal/dispatcher"
+	"github.com/seanchuatech/go-webhook-dispatcher/internal/handlers"
 )
 
 // Server wraps the standard library HTTP server
@@ -16,11 +19,18 @@ type Server struct {
 func New(addr string) *Server {
 	mux := http.NewServeMux()
 
+	// Phase 3: Initialize dispatcher with a worker pool of 100 and a queue size of 10,000
+	d := dispatcher.New(100, 10000)
+	ingestHandler := handlers.NewIngestHandler(d)
+
 	// A basic endpoint we can test
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK\n"))
 	})
+
+	// The main ingestion endpoint
+	mux.HandleFunc("/ingest", ingestHandler.HandleIngest)
 
 	return &Server{
 		httpServer: &http.Server{
