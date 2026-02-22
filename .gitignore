@@ -1,0 +1,34 @@
+# Exclude all markdown files...
+*.md
+# ...except for the README.md
+!README.md
+
+# Standard Go ignores
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Object files and archives
+*.a
+*.o
+
+# Architecture specific extensions
+*.[568vq]
+[568vq].out
+
+# Vendor directory (if you decide to use 'go mod vendor' later)
+vendor/
+
+# macOS / IDE specific
+.DS_Store
+.idea/
+.vscode/
