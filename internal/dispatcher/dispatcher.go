@@ -9,8 +9,21 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/seanchuatech/go-webhook-dispatcher/internal/domain"
 	"github.com/seanchuatech/go-webhook-dispatcher/internal/repository"
+)
+
+var (
+	eventsProcessed = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "webhook_dispatcher_events_processed_total",
+		Help: "The total number of processed webhook events",
+	})
+	eventsFailed = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "webhook_dispatcher_events_failed_total",
+		Help: "The total number of failed webhook events that go to the DLQ",
+	})
 )
 
 // Dispatcher handles sending events to their destination.
@@ -60,6 +73,7 @@ func (d *Dispatcher) worker(id int) {
 				if d.repo != nil {
 					_ = d.repo.UpdateEventStatus(context.Background(), event.ID, "DELIVERED")
 				}
+				eventsProcessed.Inc()
 				break // Success! Exit the retry loop
 			}
 
@@ -71,6 +85,7 @@ func (d *Dispatcher) worker(id int) {
 				if d.repo != nil {
 					_ = d.repo.UpdateEventStatus(context.Background(), event.ID, "FAILED")
 				}
+				eventsFailed.Inc()
 				break
 			}
 

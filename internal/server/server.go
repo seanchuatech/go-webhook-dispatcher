@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/seanchuatech/go-webhook-dispatcher/internal/dispatcher"
 	"github.com/seanchuatech/go-webhook-dispatcher/internal/handlers"
 	"github.com/seanchuatech/go-webhook-dispatcher/internal/repository"
@@ -24,11 +25,21 @@ func New(addr string, repo *repository.EventRepository) *Server {
 	d := dispatcher.New(100, 10000, repo)
 	ingestHandler := handlers.NewIngestHandler(d, repo)
 
-	// A basic endpoint we can test
+	// Liveness probe
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK\n"))
 	})
+
+	// Readiness probe
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		// In a real database-backed app, we would verify pinging the DB here
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("READY\n"))
+	})
+
+	// Prometheus metrics endpoint
+	mux.Handle("/metrics", promhttp.Handler())
 
 	// The main ingestion endpoint
 	mux.HandleFunc("/ingest", ingestHandler.HandleIngest)

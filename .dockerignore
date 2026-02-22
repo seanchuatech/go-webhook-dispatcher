@@ -1,0 +1,10 @@
+.git
+.gitignore
+.env
+.env.example
+README.md
+PROJECT_DETAILS.md
+TASK.md
+scripts/
+docker-compose.yml
+charts/
