@@ -39,18 +39,36 @@ func New(workerCount int, maxQueueSize int) *Dispatcher {
 // worker listens on the eventStream channel and dispatches events.
 func (d *Dispatcher) worker(id int) {
 	for event := range d.eventStream {
-		// Use a background context with timeout for the actual sending
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		maxRetries := 5
+		baseBackoff := 1 * time.Second
 
-		slog.Debug("worker processing event", "worker_id", id, "event_id", event.ID)
-		err := d.send(ctx, event)
-		if err != nil {
-			slog.Error("worker failed to send event", "worker_id", id, "event_id", event.ID, "error", err)
-			// Phase 4 will introduce retries here
-		} else {
-			slog.Info("worker successfully dispatched event", "worker_id", id, "event_id", event.ID)
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			// Use a background context with timeout for the actual sending
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+
+			slog.Debug("worker processing event", "worker_id", id, "event_id", event.ID, "attempt", attempt)
+			err := d.send(ctx, event)
+			cancel() // Prevent context leak
+
+			if err == nil {
+				slog.Info("worker successfully dispatched event", "worker_id", id, "event_id", event.ID, "attempt", attempt)
+				break // Success! Exit the retry loop
+			}
+
+			slog.Error("worker failed to send event", "worker_id", id, "event_id", event.ID, "attempt", attempt, "error", err)
+
+			if attempt == maxRetries {
+				slog.Error("max retries reached, event failed permanently", "worker_id", id, "event_id", event.ID)
+				// Phase 5 will introduce Dead Letter Queue here
+				break
+			}
+
+			// Exponential Backoff: Wait longer between each retry (1s, 2s, 4s, 8s, etc.)
+			// In production, we would also add "jitter" (randomness) to prevent the Thundering Herd problem
+			sleepDuration := baseBackoff * time.Duration(1<<(attempt-1))
+			slog.Info("backing off before retry", "event_id", event.ID, "sleep_duration", sleepDuration)
+			time.Sleep(sleepDuration)
 		}
-		cancel() // Prevent context leak
 	}
 }
 
